@@ -67,11 +67,20 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
     _initCamera();
   }
 
+  bool _cameraError = false;
+
   Future<void> _initCamera() async {
-    if (cameras.isEmpty) return;
-    _cameraController = CameraController(cameras[0], ResolutionPreset.high, enableAudio: false);
-    await _cameraController!.initialize();
-    if (mounted) setState(() => _isCameraInitialized = true);
+    if (cameras.isEmpty) {
+      if (mounted) setState(() => _cameraError = true);
+      return;
+    }
+    try {
+      _cameraController = CameraController(cameras[0], ResolutionPreset.high, enableAudio: false);
+      await _cameraController!.initialize();
+      if (mounted) setState(() => _isCameraInitialized = true);
+    } catch (e) {
+      if (mounted) setState(() => _cameraError = true);
+    }
   }
 
   Future<void> _captureAndScanBarcode() async {
@@ -153,6 +162,8 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
         children: [
           if (_isCameraInitialized && _cameraController != null)
             _buildCameraPreview()
+          else if (_cameraError)
+            _buildCameraErrorState()
           else
             _buildLoadingState(),
           _buildTopGradient(),
@@ -184,6 +195,53 @@ class _ScannerScreenState extends State<ScannerScreen> with TickerProviderStateM
       color: const Color(0xFF0A0A0F),
       child: const Center(
         child: CircularProgressIndicator(color: Color(0xFF00E5A0)),
+      ),
+    );
+  }
+
+  Widget _buildCameraErrorState() {
+    return Container(
+      color: const Color(0xFF0A0A0F),
+      child: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(Icons.no_photography_rounded, color: Colors.white38, size: 48),
+              const SizedBox(height: 16),
+              const Text(
+                'Não foi possível acessar a câmera',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w600),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Verifique se o app tem permissão de câmera nas configurações do aparelho.',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.white.withOpacity(0.5), fontSize: 13),
+              ),
+              const SizedBox(height: 24),
+              GestureDetector(
+                onTap: () {
+                  setState(() => _cameraError = false);
+                  _initCamera();
+                },
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF00E5A0),
+                    borderRadius: BorderRadius.circular(24),
+                  ),
+                  child: const Text(
+                    'Tentar novamente',
+                    style: TextStyle(color: Color(0xFF0A0A0F), fontWeight: FontWeight.w700, fontSize: 14),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -521,11 +579,20 @@ class _ProductResultScreenState extends State<ProductResultScreen>
 
     _nutriments = widget.productData['nutriments'] ?? {};
 
-    final allergenTags = List<String>.from(widget.productData['allergens_tags'] ?? []);
-    final tracesTags = List<String>.from(widget.productData['traces_tags'] ?? []);
+    final allergenTags = (widget.productData['allergens_tags'] as List?)
+        ?.map((e) => e.toString())
+        .toList() ??
+        [];
+    final tracesTags = (widget.productData['traces_tags'] as List?)
+        ?.map((e) => e.toString())
+        .toList() ??
+        [];
 
     _contains = allergenTags.map((t) => _allergenMap[t]).whereType<_AllergenMeta>().toList();
     _traces = tracesTags.map((t) => _allergenMap[t]).whereType<_AllergenMeta>().toList();
+
+    final sodiumG = _toNum(_nutriments['sodium_100g']);
+    final sodiumMg = sodiumG != null ? sodiumG * 1000 : null;
 
     _nutrientRows = [
       _NutrientRow('Calorias',          _fmt(_nutriments['energy-kcal_100g']),      'kcal', _pct(_nutriments['energy-kcal_100g'], 2000),       const Color(0xFFFF6B6B)),
@@ -536,12 +603,21 @@ class _ProductResultScreenState extends State<ProductResultScreen>
       _NutrientRow('Gorduras Trans',     _fmt(_nutriments['trans-fat_100g']),        'g',    _pct(_nutriments['trans-fat_100g'], 2),              const Color(0xFFFF4444)),
       _NutrientRow('Fibras',             _fmt(_nutriments['fiber_100g']),            'g',    _pct(_nutriments['fiber_100g'], 25),                 const Color(0xFF4ECDC4)),
       _NutrientRow('Açúcares',           _fmt(_nutriments['sugars_100g']),           'g',    _pct(_nutriments['sugars_100g'], 50),                const Color(0xFFFFD93D)),
-      _NutrientRow('Sódio',              _fmt(_nutriments['sodium_100g'] != null ? (_nutriments['sodium_100g'] * 1000) : null), 'mg',
-          _pct(_nutriments['sodium_100g'] != null ? (_nutriments['sodium_100g'] * 1000) : null, 2300), const Color(0xFFB8A9FF)),
+      _NutrientRow('Sódio',              sodiumMg != null ? sodiumMg.toStringAsFixed(0) : '-', 'mg',
+          sodiumMg != null ? (sodiumMg / 2300).clamp(0.0, 1.0) : 0.0, const Color(0xFFB8A9FF)),
     ];
 
-    final score = widget.productData['nutriscore_score'];
-    _healthScore = (100 - (score + 15).clamp(0, 100)).clamp(0, 100).toInt();
+    final score = _toNum(widget.productData['nutriscore_score']);
+    _healthScore = score != null
+        ? (100 - (score + 15).clamp(0, 100)).clamp(0, 100).toInt()
+        : 50;
+  }
+
+  num? _toNum(dynamic val) {
+    if (val == null) return null;
+    if (val is num) return val;
+    if (val is String) return num.tryParse(val);
+    return null;
   }
 
   String _fmt(dynamic val) {
