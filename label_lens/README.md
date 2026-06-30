@@ -1,4 +1,4 @@
-# NutriScan
+# LabelLens
 
 App em Flutter para escanear o código de barras de produtos alimentícios e exibir a tabela nutricional, índice de saudabilidade e alérgenos — com destaque visual por cores.
 
